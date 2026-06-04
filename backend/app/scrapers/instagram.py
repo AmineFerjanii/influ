@@ -29,33 +29,30 @@ _TYPENAME_MAP = {
 
 
 async def scrape_profile(username: str, settings=None) -> dict:
-    """Scrape Instagram profile using ScraperAPI as HTTP proxy."""
+    """Scrape Instagram profile via ScraperAPI URL approach."""
 
     api_key = _SCRAPER_API_KEY
     if settings:
         api_key = getattr(settings, 'scraper_api_key', None) or _SCRAPER_API_KEY
 
-    # ScraperAPI proxy — port 8012 for HTTPS targets
-    proxy_url = f"http://scraperapi:{api_key}@proxy-server.scraperapi.com:8012"
-
+    import urllib.parse
     target_url = _IG_API_URL.format(username=username)
+    encoded_url = urllib.parse.quote(target_url, safe='')
+    scraper_url = f"https://api.scraperapi.com/?api_key={api_key}&url={encoded_url}&keep_headers=true"
 
-    logger.info("Scraping @%s via ScraperAPI proxy (port 8012)", username)
+    logger.info("Scraping @%s via ScraperAPI URL approach", username)
 
     async with httpx.AsyncClient(
-        headers=_HEADERS,
         timeout=60,
         follow_redirects=True,
-        proxy=proxy_url,
-        verify=False,
     ) as client:
         try:
-            resp = await client.get(target_url)
+            resp = await client.get(scraper_url, headers=_HEADERS)
         except httpx.RequestError as e:
-            raise RuntimeError(f"Network error fetching Instagram profile '{username}': {e}")
+            raise RuntimeError(f"Network error fetching Instagram profile '{username}': {e!r}")
 
-    logger.info("ScraperAPI response status for @%s: %d", username, resp.status_code)
-    logger.info("ScraperAPI response preview for @%s: %s", username, resp.text[:300])
+    logger.info("ScraperAPI status for @%s: %d", username, resp.status_code)
+    logger.info("ScraperAPI preview for @%s: %s", username, resp.text[:500])
 
     if resp.status_code == 404:
         raise ValueError(f"Instagram profile '{username}' does not exist")
@@ -64,18 +61,18 @@ async def scrape_profile(username: str, settings=None) -> dict:
     if resp.status_code == 429:
         raise RuntimeError(f"Instagram rate-limited '{username}' (429).")
     if resp.status_code == 403:
-        raise RuntimeError(f"ScraperAPI 403 for '{username}'. Response: {resp.text[:200]}")
+        raise RuntimeError(f"ScraperAPI/Instagram 403 for '{username}'. Body: {resp.text[:300]}")
     if resp.status_code != 200:
-        raise RuntimeError(f"Instagram returned {resp.status_code} for '{username}'. Body: {resp.text[:200]}")
+        raise RuntimeError(f"Unexpected status {resp.status_code} for '{username}'. Body: {resp.text[:300]}")
 
     try:
         data = resp.json()
     except Exception:
-        raise RuntimeError(f"Invalid JSON for '{username}': {resp.text[:200]}")
+        raise RuntimeError(f"Invalid JSON for '{username}'. Raw response: {resp.text[:300]}")
 
     user = data.get("data", {}).get("user")
     if not user:
-        raise ValueError(f"Instagram profile '{username}' does not exist or is private")
+        raise ValueError(f"Instagram profile '{username}' does not exist or is private. Response keys: {list(data.keys())}")
 
     return _parse_user(user)
 
