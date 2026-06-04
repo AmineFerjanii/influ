@@ -25,10 +25,23 @@ _TYPENAME_MAP = {
     "GraphSidecar": "carousel",
 }
 
+_PROXY_URL = "http://vqspqqfa:tc7n0vvfktix@38.154.203.95:5863"
+
 
 async def scrape_profile(username: str, settings=None) -> dict:
     """Scrape an Instagram profile via the Instagram mobile API."""
-    async with httpx.AsyncClient(headers=_HEADERS, timeout=30, follow_redirects=True) as client:
+    proxy_url = None
+    if settings:
+        proxy_url = getattr(settings, 'proxy_url', None) or _PROXY_URL
+    else:
+        proxy_url = _PROXY_URL
+
+    async with httpx.AsyncClient(
+        headers=_HEADERS,
+        timeout=30,
+        follow_redirects=True,
+        proxy=proxy_url,
+    ) as client:
         url = _IG_API_URL.format(username=username)
         try:
             resp = await client.get(url)
@@ -39,6 +52,8 @@ async def scrape_profile(username: str, settings=None) -> dict:
         raise ValueError(f"Instagram profile '{username}' does not exist")
     if resp.status_code == 401:
         raise RuntimeError(f"Instagram blocked the request for '{username}' (rate limited). Try again later.")
+    if resp.status_code == 429:
+        raise RuntimeError(f"Instagram rate-limited the request for '{username}' (429). Proxy may be exhausted.")
     if resp.status_code != 200:
         raise RuntimeError(f"Instagram returned {resp.status_code} for '{username}'")
 
@@ -73,15 +88,12 @@ def _parse_user(user: dict) -> dict:
 
         thumbnail = node.get("thumbnail_src") or node.get("display_url") or ""
 
-        # Caption text
         caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
         caption = caption_edges[0]["node"]["text"] if caption_edges else ""
 
-        # Media type from __typename
         typename = node.get("__typename", "")
         media_type = _TYPENAME_MAP.get(typename, "photo")
 
-        # View count for videos
         view_count = node.get("video_view_count") or 0
 
         posts_data.append({
@@ -97,7 +109,6 @@ def _parse_user(user: dict) -> dict:
             "view_count": view_count,
         })
 
-    # Aggregate hashtags and mentions across all captions
     all_text = " ".join(p["caption"] for p in posts_data if p["caption"])
     hashtag_counts = Counter(re.findall(r"#(\w+)", all_text.lower()))
     mention_counts = Counter(re.findall(r"@(\w+)", all_text.lower()))

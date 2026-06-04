@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     ig_password: str = ""
     ig_min_delay: float = 8.0
     ig_max_delay: float = 15.0
+    proxy_url: str = ""
 
     tt_page_wait: float = 12.0
     posts_per_profile: int = 30
@@ -20,7 +21,12 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = str(BASE_DIR / ".env")
+        env_file_encoding = "utf-8"
         case_sensitive = False
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.allowed_origins.split(",")]
 
 
 settings = Settings()
