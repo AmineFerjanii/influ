@@ -1,12 +1,13 @@
 import logging
 import re
-import random
 from collections import Counter
 from datetime import datetime, timezone
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+_SCRAPER_API_KEY = "54992c77618597a7b2b9cf1863d48555"
 
 _IG_API_URL = "https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
 
@@ -26,79 +27,60 @@ _TYPENAME_MAP = {
     "GraphSidecar": "carousel",
 }
 
-_PROXY_LIST = [
-    "http://vqspqqfa:tc7n0vvfktix@38.154.203.95:5863",
-    "http://vqspqqfa:tc7n0vvfktix@198.105.121.200:6462",
-    "http://vqspqqfa:tc7n0vvfktix@64.137.96.74:6641",
-    "http://vqspqqfa:tc7n0vvfktix@209.127.138.10:5784",
-    "http://vqspqqfa:tc7n0vvfktix@38.154.185.97:6370",
-    "http://vqspqqfa:tc7n0vvfktix@84.247.60.125:6095",
-    "http://vqspqqfa:tc7n0vvfktix@142.111.67.146:5611",
-    "http://vqspqqfa:tc7n0vvfktix@191.96.254.138:6185",
-    "http://vqspqqfa:tc7n0vvfktix@31.58.9.4:6077",
-    "http://vqspqqfa:tc7n0vvfktix@104.239.107.47:5699",
-]
-
-
-def _get_proxy() -> str:
-    return random.choice(_PROXY_LIST)
-
 
 async def scrape_profile(username: str, settings=None) -> dict:
-    """Scrape an Instagram profile via the Instagram mobile API with proxy rotation."""
-    
-    # Try up to 3 different proxies before giving up
-    last_error = None
-    tried_proxies = set()
-    
-    for attempt in range(3):
-        proxy_url = _get_proxy()
-        # Avoid retrying the same proxy
-        while proxy_url in tried_proxies and len(tried_proxies) < len(_PROXY_LIST):
-            proxy_url = _get_proxy()
-        tried_proxies.add(proxy_url)
-        
-        logger.info("Scraping @%s via proxy attempt %d/3", username, attempt + 1)
-        
+    """Scrape an Instagram profile via ScraperAPI to bypass IP blocks."""
+
+    api_key = _SCRAPER_API_KEY
+    if settings:
+        api_key = getattr(settings, 'scraper_api_key', None) or _SCRAPER_API_KEY
+
+    target_url = _IG_API_URL.format(username=username)
+    scraper_url = (
+        f"http://api.scraperapi.com"
+        f"?api_key={api_key}"
+        f"&url={target_url}"
+        f"&device_type=mobile"
+        f"&keep_headers=true"
+    )
+
+    logger.info("Scraping @%s via ScraperAPI", username)
+
+    async with httpx.AsyncClient(
+        headers=_HEADERS,
+        timeout=60,
+        follow_redirects=True,
+    ) as client:
         try:
-            async with httpx.AsyncClient(
-                headers=_HEADERS,
-                timeout=30,
-                follow_redirects=True,
-                proxy=proxy_url,
-            ) as client:
-                url = _IG_API_URL.format(username=username)
-                resp = await client.get(url)
-
-            if resp.status_code == 404:
-                raise ValueError(f"Instagram profile '{username}' does not exist")
-            
-            if resp.status_code == 401:
-                raise RuntimeError(f"Instagram blocked the request for '{username}' (401). Try again later.")
-            
-            if resp.status_code == 429:
-                logger.warning("Proxy %s got 429 for @%s, trying another...", proxy_url, username)
-                last_error = RuntimeError(f"Instagram rate-limited @'{username}' (429) on all attempted proxies.")
-                continue  # try next proxy
-            
-            if resp.status_code != 200:
-                raise RuntimeError(f"Instagram returned {resp.status_code} for '{username}'")
-
-            data = resp.json()
-            user = data.get("data", {}).get("user")
-            if not user:
-                raise ValueError(f"Instagram profile '{username}' does not exist or is private")
-
-            return _parse_user(user)
-
-        except (ValueError, RuntimeError):
-            raise  # don't retry on definitive errors
+            resp = await client.get(scraper_url)
         except httpx.RequestError as e:
-            logger.warning("Network error on proxy %s for @%s: %s", proxy_url, username, e)
-            last_error = RuntimeError(f"Network error fetching Instagram profile '{username}': {e}")
-            continue  # try next proxy
+            raise RuntimeError(f"Network error fetching Instagram profile '{username}': {e}")
 
-    raise last_error or RuntimeError(f"All proxy attempts failed for '{username}'")
+    if resp.status_code == 404:
+        raise ValueError(f"Instagram profile '{username}' does not exist")
+
+    if resp.status_code == 401:
+        raise RuntimeError(f"Instagram blocked the request for '{username}' (401). Try again later.")
+
+    if resp.status_code == 429:
+        raise RuntimeError(f"Instagram rate-limited '{username}' (429). ScraperAPI quota may be exhausted.")
+
+    if resp.status_code == 403:
+        raise RuntimeError(f"ScraperAPI returned 403 for '{username}'. Check your API key or quota.")
+
+    if resp.status_code != 200:
+        raise RuntimeError(f"Instagram returned {resp.status_code} for '{username}'")
+
+    try:
+        data = resp.json()
+    except Exception:
+        raise RuntimeError(f"Invalid JSON response for '{username}'. ScraperAPI may have returned an error page.")
+
+    user = data.get("data", {}).get("user")
+    if not user:
+        raise ValueError(f"Instagram profile '{username}' does not exist or is private")
+
+    return _parse_user(user)
 
 
 def _parse_user(user: dict) -> dict:
