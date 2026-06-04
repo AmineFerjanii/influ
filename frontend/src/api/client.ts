@@ -12,7 +12,9 @@ import type {
   LinkedInfluencer,
 } from '@/types'
 
-const api = axios.create({ baseURL: '/api' })
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api'
+})
 
 export interface ListParams {
   platform?: string
@@ -37,8 +39,8 @@ export const influencerApi = {
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== '') query.append(k, String(v))
     })
-    // Trigger browser download directly
-    window.location.href = `/api/influencers/export?${query.toString()}`
+    const base = import.meta.env.VITE_API_URL ?? ''
+    window.location.href = `${base}/api/influencers/export?${query.toString()}`
   },
 
   get: (id: number) =>
