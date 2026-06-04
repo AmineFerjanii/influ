@@ -35,27 +35,27 @@ async def scrape_profile(username: str, settings=None) -> dict:
     if settings:
         api_key = getattr(settings, 'scraper_api_key', None) or _SCRAPER_API_KEY
 
-    # Use ScraperAPI as a proxy — passes our custom headers through
-    proxy_url = f"http://scraperapi:{api_key}@proxy-server.scraperapi.com:8001"
+    # ScraperAPI proxy — port 8012 for HTTPS targets
+    proxy_url = f"http://scraperapi:{api_key}@proxy-server.scraperapi.com:8012"
 
     target_url = _IG_API_URL.format(username=username)
 
-    logger.info("Scraping @%s via ScraperAPI proxy", username)
+    logger.info("Scraping @%s via ScraperAPI proxy (port 8012)", username)
 
     async with httpx.AsyncClient(
         headers=_HEADERS,
         timeout=60,
         follow_redirects=True,
         proxy=proxy_url,
-        verify=False,  # ScraperAPI proxy requires SSL verification disabled
+        verify=False,
     ) as client:
         try:
             resp = await client.get(target_url)
         except httpx.RequestError as e:
             raise RuntimeError(f"Network error fetching Instagram profile '{username}': {e}")
 
-    logger.info("Response status for @%s: %d", username, resp.status_code)
-    logger.info("Response preview for @%s: %s", username, resp.text[:300])
+    logger.info("ScraperAPI response status for @%s: %d", username, resp.status_code)
+    logger.info("ScraperAPI response preview for @%s: %s", username, resp.text[:300])
 
     if resp.status_code == 404:
         raise ValueError(f"Instagram profile '{username}' does not exist")
@@ -63,8 +63,10 @@ async def scrape_profile(username: str, settings=None) -> dict:
         raise RuntimeError(f"Instagram blocked the request for '{username}' (401).")
     if resp.status_code == 429:
         raise RuntimeError(f"Instagram rate-limited '{username}' (429).")
+    if resp.status_code == 403:
+        raise RuntimeError(f"ScraperAPI 403 for '{username}'. Response: {resp.text[:200]}")
     if resp.status_code != 200:
-        raise RuntimeError(f"Instagram returned {resp.status_code} for '{username}'")
+        raise RuntimeError(f"Instagram returned {resp.status_code} for '{username}'. Body: {resp.text[:200]}")
 
     try:
         data = resp.json()
