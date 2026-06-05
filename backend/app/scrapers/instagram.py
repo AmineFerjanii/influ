@@ -1,13 +1,12 @@
 import logging
 import re
+import urllib.parse
 from collections import Counter
 from datetime import datetime, timezone
 
 import httpx
 
 logger = logging.getLogger(__name__)
-
-_SCRAPER_API_KEY = "54992c77618597a7b2b9cf1863d48555"
 
 _IG_API_URL = "https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
 
@@ -29,16 +28,13 @@ _TYPENAME_MAP = {
 
 
 async def scrape_profile(username: str, settings=None) -> dict:
-    """Scrape Instagram profile via ScraperAPI URL approach."""
+    """Scrape Instagram profile via ScraperAPI residential proxy."""
+    from app.config import settings as app_settings
+    api_key = (settings and getattr(settings, 'scraper_api_key', None)) or app_settings.scraper_api_key
 
-    api_key = _SCRAPER_API_KEY
-    if settings:
-        api_key = getattr(settings, 'scraper_api_key', None) or _SCRAPER_API_KEY
-
-    import urllib.parse
     target_url = _IG_API_URL.format(username=username)
     encoded_url = urllib.parse.quote(target_url, safe='')
-    scraper_url = f"https://api.scraperapi.com/?api_key={api_key}&url={encoded_url}&keep_headers=true"
+    scraper_url = f"https://api.scraperapi.com/?api_key={api_key}&url={encoded_url}&keep_headers=true&residential=true"
 
     logger.info("Scraping @%s via ScraperAPI URL approach", username)
 
