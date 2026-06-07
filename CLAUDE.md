@@ -180,26 +180,48 @@ TikTok: `has_comments_data = False` → ER uses likes only.
 ## Server Deployment (Agency)
 
 The platform can run on a shared agency server instead of locally on each machine.
+Deployed via Docker Compose — `docker-compose.yml` at repo root runs both frontend (nginx, port 80) and backend (uvicorn, port 8000). Frontend container proxies `/api/` to the backend container over the internal Docker network.
+
+### Deployment (any VPS with Docker)
+```bash
+# One-time server setup
+curl -fsSL https://get.docker.com | sh
+apt install docker-compose-plugin -y
+
+# Clone and configure
+git clone https://github.com/AmineFerjanii/influ.git
+cd influ
+cat > .env << EOF
+IG_USERNAME=your_ig_username
+IG_PASSWORD=your_ig_password
+SCRAPER_API_KEY=your_scraperapi_key
+ALLOWED_ORIGINS=http://<server-ip>
+EOF
+
+# Run
+docker compose up -d --build
+
+# Future deploys
+git pull && docker compose up -d --build
+```
 
 ### What needs changing before deploying
 - **Auth**: No login system exists. Add nginx basic auth at minimum, or a JWT layer.
-- **CORS**: Update allowed origins in `backend/app/main.py` (currently hardcoded to `localhost:5173`).
-- **Frontend**: Run `npm run build` and serve as static files via nginx.
-- **Process manager**: Run uvicorn via systemd (single worker only — never `--workers > 1`).
-- **Instagram rate limits**: All agency users share one server IP → limits hit faster; add `IG_USERNAME`/`IG_PASSWORD` in `.env`.
+- **CORS**: Set `ALLOWED_ORIGINS` env var to your server IP/domain (passed via `.env` → docker-compose).
+- **Instagram scraping**: All requests go through ScraperAPI residential proxies — hosting IP doesn't matter.
 - **SQLite**: Fine for 2–10 concurrent users. Migrate to PostgreSQL for larger teams.
 
-### VPS Cost Estimate (as of May 2026)
-| Provider | Spec | Monthly |
-|----------|------|---------|
-| Hetzner CX22 | 2 vCPU, 4 GB RAM | ~$6–7 |
-| DigitalOcean Basic | 2 vCPU, 4 GB RAM | ~$18 |
-| AWS Lightsail | 2 vCPU, 4 GB RAM | ~$20 |
-| Render.com (managed) | — | ~$25–35 |
+### VPS Cost Estimate (as of June 2026)
+| Provider | Spec | Monthly | Notes |
+|----------|------|---------|-------|
+| DigitalOcean Basic | 2 vCPU, 2 GB RAM | ~$12 | **Recommended** — no ID verification, credit card only |
+| Vultr | 2 vCPU, 2 GB RAM | ~$12 | Same workflow, slightly cheaper |
+| Hetzner CX22 | 2 vCPU, 4 GB RAM | ~$6–7 | Cheapest but requires document verification |
+| Render.com (managed) | — | ~$25–35 | No server management needed |
 
 **Minimum spec:** 2 GB RAM (Playwright needs ~500 MB per scrape), 20 GB storage.
-**Recommended:** Hetzner CX22 (~$6/mo) + nginx + systemd = ~$80–100/year total.
-**Other costs:** Domain ~$12/year, SSL free via Let's Encrypt.
+**Recommended:** DigitalOcean $12/mo Droplet (Ubuntu 24.04) — signup with credit card, no ID required.
+**Other costs:** Domain ~$12/year, SSL free via Let's Encrypt (add certbot after deploy).
 
 ---
 
