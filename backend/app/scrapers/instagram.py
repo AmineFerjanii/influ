@@ -7,14 +7,14 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_IG_API_URL = "https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
+_IG_API_URL = "https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
 
 _HEADERS = {
-    "User-Agent": "Instagram 219.0.0.12.117 Android (33/13; 420dpi; 1080x2400; samsung; SM-G991B; o1s; exynos2100)",
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
     "x-ig-app-id": "936619743392459",
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "*/*",
-    "x-ig-www-claim": "0",
+    "Accept": "application/json, text/plain, */*",
+    "x-requested-with": "XMLHttpRequest",
     "origin": "https://www.instagram.com",
     "referer": "https://www.instagram.com/",
 }
@@ -27,30 +27,40 @@ _TYPENAME_MAP = {
 
 
 async def scrape_profile(username: str, settings=None) -> dict:
-    """Scrape Instagram profile via ScraperAPI residential proxy (proxy mode)."""
+    """Scrape Instagram profile. Tries ScraperAPI residential first, falls back to direct."""
     from app.config import settings as app_settings
     api_key = (settings and getattr(settings, 'scraper_api_key', None)) or app_settings.scraper_api_key
 
-    # Proxy mode: httpx routes through ScraperAPI residential IPs directly.
-    # Avoids ScraperAPI's URL blocklist that rejects i.instagram.com endpoints.
-    proxy_url = f"http://scraperapi.residential=true:{api_key}@proxy-server.scraperapi.com:8001"
-
     target_url = _IG_API_URL.format(username=username)
-    logger.info("Scraping @%s via ScraperAPI proxy mode", username)
 
-    async with httpx.AsyncClient(
-        proxy=proxy_url,
-        timeout=60,
-        follow_redirects=True,
-    ) as client:
+    # Try via ScraperAPI (residential) first
+    if api_key:
+        import urllib.parse
+        encoded = urllib.parse.quote(target_url, safe='')
+        scraper_url = f"https://api.scraperapi.com/?api_key={api_key}&url={encoded}&residential=true"
+        try:
+            async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+                resp = await client.get(scraper_url, headers=_HEADERS)
+            logger.info("ScraperAPI status for @%s: %d", username, resp.status_code)
+            if resp.status_code == 200:
+                return _extract(resp, username)
+            logger.warning("ScraperAPI failed for @%s (%d), trying direct", username, resp.status_code)
+        except httpx.RequestError as e:
+            logger.warning("ScraperAPI request error for @%s: %s, trying direct", username, e)
+
+    # Direct request fallback
+    logger.info("Scraping @%s via direct request", username)
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         try:
             resp = await client.get(target_url, headers=_HEADERS)
         except httpx.RequestError as e:
             raise RuntimeError(f"Network error fetching Instagram profile '{username}': {e!r}")
 
-    logger.info("ScraperAPI status for @%s: %d", username, resp.status_code)
-    logger.info("ScraperAPI preview for @%s: %s", username, resp.text[:500])
+    logger.info("Direct status for @%s: %d", username, resp.status_code)
+    return _extract(resp, username)
 
+
+def _extract(resp: httpx.Response, username: str) -> dict:
     if resp.status_code == 404:
         raise ValueError(f"Instagram profile '{username}' does not exist")
     if resp.status_code == 401:
@@ -58,18 +68,18 @@ async def scrape_profile(username: str, settings=None) -> dict:
     if resp.status_code == 429:
         raise RuntimeError(f"Instagram rate-limited '{username}' (429).")
     if resp.status_code == 403:
-        raise RuntimeError(f"ScraperAPI/Instagram 403 for '{username}'. Body: {resp.text[:300]}")
+        raise RuntimeError(f"Instagram 403 for '{username}'. Body: {resp.text[:300]}")
     if resp.status_code != 200:
         raise RuntimeError(f"Unexpected status {resp.status_code} for '{username}'. Body: {resp.text[:300]}")
 
     try:
         data = resp.json()
     except Exception:
-        raise RuntimeError(f"Invalid JSON for '{username}'. Raw response: {resp.text[:300]}")
+        raise RuntimeError(f"Invalid JSON for '{username}'. Raw: {resp.text[:300]}")
 
     user = data.get("data", {}).get("user")
     if not user:
-        raise ValueError(f"Instagram profile '{username}' does not exist or is private. Response keys: {list(data.keys())}")
+        raise ValueError(f"Profile '{username}' not found or private. Keys: {list(data.keys())}")
 
     return _parse_user(user)
 
