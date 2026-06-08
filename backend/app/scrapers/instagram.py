@@ -1,6 +1,5 @@
 import logging
 import re
-import urllib.parse
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -28,22 +27,24 @@ _TYPENAME_MAP = {
 
 
 async def scrape_profile(username: str, settings=None) -> dict:
-    """Scrape Instagram profile via ScraperAPI residential proxy."""
+    """Scrape Instagram profile via ScraperAPI residential proxy (proxy mode)."""
     from app.config import settings as app_settings
     api_key = (settings and getattr(settings, 'scraper_api_key', None)) or app_settings.scraper_api_key
 
-    target_url = _IG_API_URL.format(username=username)
-    encoded_url = urllib.parse.quote(target_url, safe='')
-    scraper_url = f"https://api.scraperapi.com/?api_key={api_key}&url={encoded_url}&keep_headers=true&residential=true"
+    # Proxy mode: httpx routes through ScraperAPI residential IPs directly.
+    # Avoids ScraperAPI's URL blocklist that rejects i.instagram.com endpoints.
+    proxy_url = f"http://scraperapi.residential=true:{api_key}@proxy-server.scraperapi.com:8001"
 
-    logger.info("Scraping @%s via ScraperAPI URL approach", username)
+    target_url = _IG_API_URL.format(username=username)
+    logger.info("Scraping @%s via ScraperAPI proxy mode", username)
 
     async with httpx.AsyncClient(
+        proxy=proxy_url,
         timeout=60,
         follow_redirects=True,
     ) as client:
         try:
-            resp = await client.get(scraper_url, headers=_HEADERS)
+            resp = await client.get(target_url, headers=_HEADERS)
         except httpx.RequestError as e:
             raise RuntimeError(f"Network error fetching Instagram profile '{username}': {e!r}")
 
