@@ -1,23 +1,13 @@
+import asyncio
 import logging
 import re
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import timezone
 
-import httpx
+import instaloader
+from instaloader import Profile, ProfileNotExistsException, PrivateProfileNotFollowedException
 
 logger = logging.getLogger(__name__)
-
-_IG_API_URL = "https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
-
-_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-    "x-ig-app-id": "936619743392459",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "application/json, text/plain, */*",
-    "x-requested-with": "XMLHttpRequest",
-    "origin": "https://www.instagram.com",
-    "referer": "https://www.instagram.com/",
-}
 
 _TYPENAME_MAP = {
     "GraphImage": "photo",
@@ -25,126 +15,105 @@ _TYPENAME_MAP = {
     "GraphSidecar": "carousel",
 }
 
+_loader: instaloader.Instaloader = None
+_loader_lock = asyncio.Lock()
+
+
+def _make_loader() -> instaloader.Instaloader:
+    return instaloader.Instaloader(
+        quiet=True,
+        download_pictures=False,
+        download_videos=False,
+        download_video_thumbnails=False,
+        download_geotags=False,
+        download_comments=False,
+        save_metadata=False,
+        compress_json=False,
+        request_timeout=30,
+    )
+
+
+async def _get_loader(ig_username: str, ig_password: str) -> instaloader.Instaloader:
+    global _loader
+    async with _loader_lock:
+        if _loader is None:
+            _loader = _make_loader()
+            if ig_username and ig_password:
+                try:
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, _loader.login, ig_username, ig_password)
+                    logger.info("Instagram login successful as @%s", ig_username)
+                except Exception as e:
+                    logger.warning("Instagram login failed (%s) — proceeding unauthenticated", e)
+    return _loader
+
+
+def _fetch_in_thread(context, username: str, posts_limit: int):
+    """Blocking: fetch profile + posts. Runs in thread pool."""
+    try:
+        profile = Profile.from_username(context, username)
+    except ProfileNotExistsException:
+        raise ValueError(f"Instagram profile '{username}' does not exist")
+    except PrivateProfileNotFollowedException:
+        raise ValueError(f"Instagram profile '{username}' is private")
+
+    posts = []
+    try:
+        for post in profile.get_posts():
+            if len(posts) >= posts_limit:
+                break
+            all_text = post.caption or ""
+            posts.append({
+                "post_id": post.shortcode,
+                "thumbnail_url": post.url,
+                "post_url": f"https://www.instagram.com/p/{post.shortcode}/",
+                "likes": post.likes,
+                "comments": post.comments,
+                "posted_at": post.date_utc.replace(tzinfo=timezone.utc) if post.date_utc else None,
+                "is_video": post.is_video,
+                "caption": all_text,
+                "media_type": _TYPENAME_MAP.get(post.typename, "photo"),
+                "view_count": post.video_view_count if post.is_video else 0,
+            })
+    except Exception as e:
+        logger.warning("Could not fetch posts for @%s: %s", username, e)
+
+    return profile, posts
+
 
 async def scrape_profile(username: str, settings=None) -> dict:
-    """Scrape Instagram profile. Tries ScraperAPI residential first, falls back to direct."""
+    """Scrape Instagram profile via instaloader with credential-based auth."""
     from app.config import settings as app_settings
-    api_key = (settings and getattr(settings, 'scraper_api_key', None)) or app_settings.scraper_api_key
+    ig_username = (settings and getattr(settings, "ig_username", None)) or app_settings.ig_username
+    ig_password = (settings and getattr(settings, "ig_password", None)) or app_settings.ig_password
+    posts_limit = (settings and getattr(settings, "posts_per_profile", None)) or app_settings.posts_per_profile
 
-    target_url = _IG_API_URL.format(username=username)
+    loader = await _get_loader(ig_username, ig_password)
 
-    # Try via ScraperAPI (residential) first
-    if api_key:
-        import urllib.parse
-        encoded = urllib.parse.quote(target_url, safe='')
-        scraper_url = f"https://api.scraperapi.com/?api_key={api_key}&url={encoded}&residential=true"
-        try:
-            async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
-                resp = await client.get(scraper_url, headers=_HEADERS)
-            logger.info("ScraperAPI status for @%s: %d", username, resp.status_code)
-            if resp.status_code == 200:
-                return _extract(resp, username)
-            logger.warning("ScraperAPI failed for @%s (%d), trying direct", username, resp.status_code)
-        except httpx.RequestError as e:
-            logger.warning("ScraperAPI request error for @%s: %s, trying direct", username, e)
-
-    # Direct request fallback
-    logger.info("Scraping @%s via direct request", username)
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        try:
-            resp = await client.get(target_url, headers=_HEADERS)
-        except httpx.RequestError as e:
-            raise RuntimeError(f"Network error fetching Instagram profile '{username}': {e!r}")
-
-    logger.info("Direct status for @%s: %d", username, resp.status_code)
-    return _extract(resp, username)
-
-
-def _extract(resp: httpx.Response, username: str) -> dict:
-    if resp.status_code == 404:
-        raise ValueError(f"Instagram profile '{username}' does not exist")
-    if resp.status_code == 401:
-        raise RuntimeError(f"Instagram blocked the request for '{username}' (401).")
-    if resp.status_code == 429:
-        raise RuntimeError(f"Instagram rate-limited '{username}' (429).")
-    if resp.status_code == 403:
-        raise RuntimeError(f"Instagram 403 for '{username}'. Body: {resp.text[:300]}")
-    if resp.status_code != 200:
-        raise RuntimeError(f"Unexpected status {resp.status_code} for '{username}'. Body: {resp.text[:300]}")
-
+    loop = asyncio.get_running_loop()
     try:
-        data = resp.json()
-    except Exception:
-        raise RuntimeError(f"Invalid JSON for '{username}'. Raw: {resp.text[:300]}")
-
-    user = data.get("data", {}).get("user")
-    if not user:
-        raise ValueError(f"Profile '{username}' not found or private. Keys: {list(data.keys())}")
-
-    return _parse_user(user)
-
-
-def _parse_user(user: dict) -> dict:
-    username = user.get("username", "")
-    followers = user.get("edge_followed_by", {}).get("count", 0)
-    following = user.get("edge_follow", {}).get("count", 0)
-    timeline = user.get("edge_owner_to_timeline_media", {})
-    total_posts = timeline.get("count", 0)
-    edges = timeline.get("edges", [])
-
-    posts_data = []
-    for edge in edges:
-        node = edge.get("node", {})
-        shortcode = node.get("shortcode", "")
-
-        likes = (
-            node.get("edge_media_preview_like", {}).get("count", 0)
-            or node.get("edge_liked_by", {}).get("count", 0)
+        profile, posts_data = await loop.run_in_executor(
+            None, _fetch_in_thread, loader.context, username, posts_limit
         )
-        comments = node.get("edge_media_to_comment", {}).get("count", 0)
-        timestamp = node.get("taken_at_timestamp")
-        posted_at = datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp else None
-
-        thumbnail = node.get("thumbnail_src") or node.get("display_url") or ""
-
-        caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
-        caption = caption_edges[0]["node"]["text"] if caption_edges else ""
-
-        typename = node.get("__typename", "")
-        media_type = _TYPENAME_MAP.get(typename, "photo")
-
-        view_count = node.get("video_view_count") or 0
-
-        posts_data.append({
-            "post_id": shortcode,
-            "thumbnail_url": thumbnail,
-            "post_url": f"https://www.instagram.com/p/{shortcode}/",
-            "likes": likes,
-            "comments": comments,
-            "posted_at": posted_at,
-            "is_video": node.get("is_video", False),
-            "caption": caption,
-            "media_type": media_type,
-            "view_count": view_count,
-        })
+    except (ValueError, RuntimeError):
+        raise
+    except Exception as e:
+        raise RuntimeError(f"Failed to scrape Instagram profile '{username}': {e!r}")
 
     all_text = " ".join(p["caption"] for p in posts_data if p["caption"])
     hashtag_counts = Counter(re.findall(r"#(\w+)", all_text.lower()))
     mention_counts = Counter(re.findall(r"@(\w+)", all_text.lower()))
 
-    top_hashtags = [{"tag": f"#{t}", "count": c} for t, c in hashtag_counts.most_common(10)]
-    top_mentions = [{"mention": f"@{m}", "count": c} for m, c in mention_counts.most_common(10)]
-
     return {
-        "username": username,
-        "display_name": user.get("full_name", "") or "",
-        "profile_pic_url": user.get("profile_pic_url_hd") or user.get("profile_pic_url") or "",
-        "bio": user.get("biography", "") or "",
-        "followers": followers,
-        "following": following,
-        "total_posts": total_posts,
-        "is_verified": bool(user.get("is_verified", False)),
+        "username": profile.username,
+        "display_name": profile.full_name or "",
+        "profile_pic_url": profile.profile_pic_url or "",
+        "bio": profile.biography or "",
+        "followers": profile.followers,
+        "following": profile.followees,
+        "total_posts": profile.mediacount,
+        "is_verified": bool(profile.is_verified),
         "posts": posts_data,
-        "top_hashtags": top_hashtags,
-        "top_mentions": top_mentions,
+        "top_hashtags": [{"tag": f"#{t}", "count": c} for t, c in hashtag_counts.most_common(10)],
+        "top_mentions": [{"mention": f"@{m}", "count": c} for m, c in mention_counts.most_common(10)],
     }
