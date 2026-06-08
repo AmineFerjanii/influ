@@ -19,8 +19,8 @@ _loader: instaloader.Instaloader = None
 _loader_lock = asyncio.Lock()
 
 
-def _make_loader() -> instaloader.Instaloader:
-    return instaloader.Instaloader(
+def _make_loader(proxy_url: str = "") -> instaloader.Instaloader:
+    loader = instaloader.Instaloader(
         quiet=True,
         download_pictures=False,
         download_videos=False,
@@ -31,20 +31,24 @@ def _make_loader() -> instaloader.Instaloader:
         compress_json=False,
         request_timeout=30,
     )
+    if proxy_url:
+        loader.context._session.proxies = {"http": proxy_url, "https": proxy_url}
+        logger.info("Instaloader proxy configured: %s", proxy_url[:40])
+    return loader
 
 
-async def _get_loader(ig_username: str, ig_password: str) -> instaloader.Instaloader:
+async def _get_loader(ig_username: str, ig_password: str, proxy_url: str = "") -> instaloader.Instaloader:
     global _loader
     async with _loader_lock:
         if _loader is None:
-            _loader = _make_loader()
-            if ig_username and ig_password:
-                try:
-                    loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(None, _loader.login, ig_username, ig_password)
-                    logger.info("Instagram login successful as @%s", ig_username)
-                except Exception as e:
-                    logger.warning("Instagram login failed (%s) — proceeding unauthenticated", e)
+            _loader = _make_loader(proxy_url)
+            if not ig_username or not ig_password:
+                logger.warning("No Instagram credentials configured — scraping unauthenticated (heavy rate limits)")
+            else:
+                logger.info("Logging into Instagram as @%s ...", ig_username)
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, _loader.login, ig_username, ig_password)
+                logger.info("Instagram login successful as @%s", ig_username)
     return _loader
 
 
@@ -84,11 +88,19 @@ def _fetch_in_thread(context, username: str, posts_limit: int):
 async def scrape_profile(username: str, settings=None) -> dict:
     """Scrape Instagram profile via instaloader with credential-based auth."""
     from app.config import settings as app_settings
-    ig_username = (settings and getattr(settings, "ig_username", None)) or app_settings.ig_username
-    ig_password = (settings and getattr(settings, "ig_password", None)) or app_settings.ig_password
-    posts_limit = (settings and getattr(settings, "posts_per_profile", None)) or app_settings.posts_per_profile
+    cfg = settings or app_settings
+    ig_username = getattr(cfg, "ig_username", "") or ""
+    ig_password = getattr(cfg, "ig_password", "") or ""
+    posts_limit = getattr(cfg, "posts_per_profile", 30) or 30
+    proxy_url = getattr(cfg, "proxy_url", "") or ""
 
-    loader = await _get_loader(ig_username, ig_password)
+    # Build ScraperAPI residential proxy if no explicit proxy is configured
+    if not proxy_url:
+        api_key = getattr(cfg, "scraper_api_key", "") or ""
+        if api_key:
+            proxy_url = f"http://scraperapi.residential=true:{api_key}@proxy-server.scraperapi.com:8001"
+
+    loader = await _get_loader(ig_username, ig_password, proxy_url)
 
     loop = asyncio.get_running_loop()
     try:
