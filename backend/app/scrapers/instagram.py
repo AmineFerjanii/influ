@@ -50,14 +50,20 @@ async def _get_session(ig_username: str, ig_password: str) -> str:
     logger.info("Logging into Instagram as @%s ...", ig_username)
 
     async with httpx.AsyncClient(headers=_BROWSER_HEADERS, follow_redirects=True, timeout=30) as client:
-        # Get CSRF token from login page
-        resp = await client.get(_CSRF_URL)
-        csrf = client.cookies.get("csrftoken")
+        # Try homepage first, then login page for CSRF token
+        csrf = ""
+        for csrf_url in ["https://www.instagram.com/", _CSRF_URL]:
+            resp = await client.get(csrf_url)
+            logger.info("CSRF fetch from %s → status=%d cookies=%s", csrf_url, resp.status_code, list(client.cookies.keys()))
+            csrf = client.cookies.get("csrftoken") or ""
+            if not csrf:
+                m = re.search(r'"csrf_token":"([^"]+)"', resp.text)
+                csrf = m.group(1) if m else ""
+            if csrf:
+                break
+
         if not csrf:
-            m = re.search(r'"csrf_token":"([^"]+)"', resp.text)
-            csrf = m.group(1) if m else ""
-        if not csrf:
-            raise RuntimeError("Could not obtain Instagram CSRF token")
+            raise RuntimeError(f"Could not obtain Instagram CSRF token (last status: {resp.status_code}, body snippet: {resp.text[:200]})")
 
         login_resp = await client.post(
             _LOGIN_URL,
