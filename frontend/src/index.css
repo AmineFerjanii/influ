@@ -5,29 +5,59 @@
 @layer base {
   body {
     background-color: #07090F;
-    background-image: radial-gradient(#1A2035 1px, transparent 1px);
-    background-size: 28px 28px;
-    @apply text-gray-100 antialiased;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(41,171,226,0.06), transparent),
+      radial-gradient(#1C2638 1px, transparent 1px);
+    background-size: 100% 100%, 24px 24px;
+    @apply text-gray-100 antialiased font-sans;
   }
 
   * {
     @apply box-border;
+  }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background-color: #1C2638; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background-color: #29ABE2; }
+
+  /* Firefox */
+  * { scrollbar-width: thin; scrollbar-color: #1C2638 transparent; }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 active:bg-brand-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-200 hover:bg-ealan-hover border border-ealan-border hover:border-gray-500 transition-colors disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-red-400 hover:text-red-300 border border-red-900 hover:border-red-700 hover:bg-red-950/40 transition-colors;
+  }
+
+  .input-base {
+    @apply w-full bg-ealan-bg border border-ealan-border rounded-xl px-3 py-2.5 text-sm text-gray-200 placeholder-ealan-muted focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/20 transition-colors;
+  }
+
+  .card-base {
+    @apply bg-ealan-card border border-ealan-border rounded-2xl transition-all duration-200;
+  }
+
+  .card-interactive {
+    @apply card-base hover:border-brand-500/40 hover:shadow-card-hover cursor-pointer;
+  }
+
+  .section-label {
+    @apply text-[10px] font-semibold text-ealan-muted uppercase tracking-widest;
   }
 }
 
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: #1A2035 transparent;
-  }
-  .scrollbar-thin::-webkit-scrollbar {
-    width: 4px;
-  }
-  .scrollbar-thin::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: #1A2035;
-    border-radius: 2px;
+    scrollbar-color: #1C2638 transparent;
   }
 }

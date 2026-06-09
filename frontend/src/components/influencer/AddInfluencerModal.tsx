@@ -100,9 +100,9 @@ export function AddInfluencerModal({ open, onClose }: AddInfluencerModalProps) {
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && handleClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" />
-        <Dialog.Content className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-6">
-          <Dialog.Close className="absolute top-4 right-4 p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors">
+        <Dialog.Overlay className="fixed inset-0 bg-black/65 backdrop-blur-sm z-40 animate-fade-in" />
+        <Dialog.Content className="fixed z-50 inset-x-0 bottom-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 w-full sm:max-w-lg bg-ealan-surface border border-ealan-border rounded-t-2xl sm:rounded-2xl shadow-modal p-6 animate-slide-up sm:animate-fade-in">
+          <Dialog.Close className="absolute top-4 right-4 p-1.5 rounded-lg text-ealan-muted hover:text-gray-200 hover:bg-ealan-hover transition-colors">
             <X size={16} />
           </Dialog.Close>
 
@@ -112,7 +112,7 @@ export function AddInfluencerModal({ open, onClose }: AddInfluencerModalProps) {
           </Dialog.Description>
 
           {/* Tabs */}
-          <div className="flex gap-1 bg-gray-800 rounded-lg p-0.5 mb-5 border border-gray-700">
+          <div className="flex gap-1 bg-ealan-bg rounded-xl p-0.5 mb-5 border border-ealan-border">
             {(['manual', 'csv'] as Tab[]).map((t) => (
               <button
                 key={t}
@@ -130,17 +130,17 @@ export function AddInfluencerModal({ open, onClose }: AddInfluencerModalProps) {
           {tab === 'manual' ? (
             <form onSubmit={handleManualSubmit} className="space-y-4">
               <div>
-                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide block mb-2">Platform</label>
+                <label className="section-label block mb-2">Platform</label>
                 <div className="flex gap-2">
                   {PLATFORMS.map(({ value, label }) => (
                     <button
                       key={value}
                       type="button"
                       onClick={() => setPlatform(value)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                      className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors border ${
                         platform === value
-                          ? 'bg-brand-500/20 border-brand-500 text-brand-400'
-                          : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'
+                          ? 'bg-brand-500/15 border-brand-500/60 text-brand-300'
+                          : 'bg-ealan-bg border-ealan-border text-gray-400 hover:border-gray-600 hover:text-gray-200'
                       }`}
                     >
                       {label}
@@ -150,7 +150,7 @@ export function AddInfluencerModal({ open, onClose }: AddInfluencerModalProps) {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide block mb-2">Username</label>
+                <label className="section-label block mb-2">Username</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">@</span>
                   <input
@@ -158,7 +158,7 @@ export function AddInfluencerModal({ open, onClose }: AddInfluencerModalProps) {
                     value={username}
                     onChange={(e) => { setUsername(e.target.value); setManualError('') }}
                     placeholder="username (without @)"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-7 pr-3 py-2.5 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-500 transition-colors"
+                    className="input-base pl-7"
                     autoFocus
                   />
                 </div>
@@ -176,7 +176,7 @@ export function AddInfluencerModal({ open, onClose }: AddInfluencerModalProps) {
           ) : (
             <div className="space-y-4">
               {/* Format hint */}
-              <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 text-xs text-gray-400 space-y-1">
+              <div className="bg-ealan-bg border border-ealan-border rounded-xl p-3 text-xs text-gray-400 space-y-1">
                 <p className="font-semibold text-gray-300">CSV format</p>
                 <p>Required column: <code className="text-brand-400">username</code></p>
                 <p>Optional column: <code className="text-brand-400">platform</code> (instagram / tiktok, defaults to instagram)</p>
@@ -187,8 +187,8 @@ export function AddInfluencerModal({ open, onClose }: AddInfluencerModalProps) {
               <div
                 onClick={() => fileInputRef.current?.click()}
                 className={clsx(
-                  'border-2 border-dashed rounded-lg p-6 flex flex-col items-center gap-2 cursor-pointer transition-colors',
-                  csvFile ? 'border-brand-500/50 bg-brand-500/5' : 'border-gray-700 hover:border-gray-600 bg-gray-800/30'
+                  'border-2 border-dashed rounded-xl p-6 flex flex-col items-center gap-2 cursor-pointer transition-colors',
+                  csvFile ? 'border-brand-500/50 bg-brand-500/5' : 'border-ealan-border hover:border-gray-600 bg-ealan-bg/50'
                 )}
               >
                 <Upload size={20} className={csvFile ? 'text-brand-400' : 'text-gray-500'} />
@@ -214,7 +214,7 @@ export function AddInfluencerModal({ open, onClose }: AddInfluencerModalProps) {
               )}
 
               {csvResult && (
-                <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 space-y-2">
+                <div className="bg-ealan-bg border border-ealan-border rounded-xl p-3 space-y-2">
                   <div className="flex items-center gap-2 text-green-400 text-sm font-medium">
                     <CheckCircle size={14} />
                     Import complete
@@ -252,7 +252,7 @@ export function AddInfluencerModal({ open, onClose }: AddInfluencerModalProps) {
               {csvResult && (
                 <button
                   onClick={handleClose}
-                  className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2.5 rounded-lg text-sm font-medium transition-colors"
+                  className="w-full flex items-center justify-center gap-2 btn-ghost justify-center py-2.5"
                 >
                   Done
                 </button>

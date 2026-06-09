@@ -18,15 +18,18 @@ const DEFAULT_COLOR = 'bg-gray-800 text-gray-300 border-gray-700'
 interface NicheTagListProps {
   niches: string[]
   size?: 'sm' | 'xs'
+  max?: number
 }
 
-export function NicheTagList({ niches, size = 'sm' }: NicheTagListProps) {
+export function NicheTagList({ niches, size = 'sm', max }: NicheTagListProps) {
   if (niches.length === 0) return null
   const textSize = size === 'xs' ? 'text-[10px] px-1.5 py-0.5' : 'text-xs px-2 py-1'
+  const visible = max ? niches.slice(0, max) : niches
+  const extra = max ? niches.length - max : 0
 
   return (
-    <div className="flex flex-wrap gap-1">
-      {niches.map((niche) => (
+    <div className="flex flex-wrap gap-1 items-center">
+      {visible.map((niche) => (
         <span
           key={niche}
           className={`${textSize} rounded-md border font-medium ${NICHE_COLORS[niche] ?? DEFAULT_COLOR}`}
@@ -34,6 +37,9 @@ export function NicheTagList({ niches, size = 'sm' }: NicheTagListProps) {
           {niche}
         </span>
       ))}
+      {extra > 0 && (
+        <span className="text-[10px] text-ealan-muted">+{extra}</span>
+      )}
     </div>
   )
 }

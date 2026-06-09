@@ -22,6 +22,7 @@ export default function App() {
 
   // Influencer state
   const [selectedInfluencerId, setSelectedInfluencerId] = useState<number | null>(null)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [addInfluencerOpen, setAddInfluencerOpen] = useState(false)
   const queryClient = useQueryClient()
   const { data, isLoading } = useInfluencers()
@@ -62,10 +63,18 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-ealan-bg">
-      <TopBar onAddClick={handleAddClick} onClearAll={handleClearAll} total={activeView === 'influencers' ? data?.total : undefined} bulkRefresh={bulkRefresh} />
+      <TopBar
+        onAddClick={handleAddClick}
+        onClearAll={handleClearAll}
+        total={activeView === 'influencers' ? data?.total : undefined}
+        bulkRefresh={bulkRefresh}
+        onFilterToggle={() => setMobileSidebarOpen((o) => !o)}
+      />
 
       <div className="flex-1 flex overflow-hidden">
-        {activeView === 'influencers' && <Sidebar />}
+        {activeView === 'influencers' && (
+          <Sidebar open={mobileSidebarOpen} onClose={() => setMobileSidebarOpen(false)} />
+        )}
 
         <main className="flex-1 flex flex-col overflow-hidden">
           {activeView === 'influencers' ? (

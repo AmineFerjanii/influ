@@ -76,27 +76,27 @@ export function InfluencerGrid({
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="border-t border-gray-800 px-4 py-3 flex items-center justify-between bg-gray-900 shrink-0">
-          <span className="text-xs text-gray-500">
+        <div className="border-t border-ealan-border px-4 py-3 flex items-center justify-between bg-ealan-surface shrink-0">
+          <span className="text-xs text-ealan-muted">
             {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total.toLocaleString()}
           </span>
-          <div className="flex gap-1">
+          <div className="flex gap-1 items-center">
             <button
               onClick={() => setPage(page - 1)}
               disabled={page === 1}
-              className="px-3 py-1 text-xs rounded-lg border border-gray-700 text-gray-400 hover:bg-gray-800 disabled:opacity-40 transition-colors"
+              className="btn-ghost py-1 px-3 text-xs disabled:opacity-40"
             >
-              Prev
+              ← Prev
             </button>
-            <span className="px-3 py-1 text-xs text-gray-400">
+            <span className="px-3 py-1 text-xs text-gray-400 tabular-nums">
               {page} / {totalPages}
             </span>
             <button
               onClick={() => setPage(page + 1)}
               disabled={page === totalPages}
-              className="px-3 py-1 text-xs rounded-lg border border-gray-700 text-gray-400 hover:bg-gray-800 disabled:opacity-40 transition-colors"
+              className="btn-ghost py-1 px-3 text-xs disabled:opacity-40"
             >
-              Next
+              Next →
             </button>
           </div>
         </div>

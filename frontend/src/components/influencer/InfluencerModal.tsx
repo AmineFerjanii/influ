@@ -31,13 +31,21 @@ export function InfluencerModal({
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 animate-in fade-in" />
+        <Dialog.Overlay className="fixed inset-0 bg-black/65 backdrop-blur-sm z-40 animate-fade-in" />
         <Dialog.Content
-          className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[90vh] overflow-y-auto scrollbar-thin bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl animate-in fade-in zoom-in-95"
+          className={[
+            'fixed z-50 overflow-y-auto scrollbar-thin bg-ealan-surface border border-ealan-border shadow-modal',
+            // Mobile: full screen
+            'inset-0 rounded-none',
+            // Tablet+: centered sheet
+            'sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2',
+            'sm:w-full sm:max-w-2xl sm:max-h-[90vh] sm:rounded-2xl',
+            'animate-fade-in',
+          ].join(' ')}
           aria-describedby="influencer-detail"
         >
           {/* Close */}
-          <Dialog.Close className="absolute top-4 right-4 p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors z-10">
+          <Dialog.Close className="absolute top-4 right-4 p-1.5 rounded-lg text-ealan-muted hover:text-gray-200 hover:bg-ealan-hover transition-colors z-10">
             <X size={16} />
           </Dialog.Close>
 
@@ -48,7 +56,7 @@ export function InfluencerModal({
           ) : influencer ? (
             <div id="influencer-detail">
               {/* Header */}
-              <div className="p-6 pb-4 border-b border-gray-800">
+              <div className="p-5 sm:p-6 pb-4 border-b border-ealan-border">
                 <div className="flex items-start gap-4">
                   {influencer.profile_pic_url ? (
                     <img
@@ -58,7 +66,7 @@ export function InfluencerModal({
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                     />
                   ) : (
-                    <div className="w-16 h-16 rounded-full bg-gray-800 flex items-center justify-center shrink-0">
+                    <div className="w-16 h-16 rounded-full bg-ealan-hover flex items-center justify-center shrink-0">
                       <User size={28} className="text-gray-600" />
                     </div>
                   )}
@@ -92,7 +100,7 @@ export function InfluencerModal({
                   <button
                     onClick={onRefresh}
                     disabled={isScraping}
-                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-gray-300 transition-colors disabled:opacity-50"
+                    className="shrink-0 btn-ghost disabled:opacity-50"
                   >
                     <RefreshCw size={13} className={isScraping ? 'animate-spin' : ''} />
                     {isScraping ? 'Scraping…' : 'Refresh'}
@@ -117,7 +125,7 @@ export function InfluencerModal({
               </div>
 
               {/* KPI Row */}
-              <div className="p-6 pb-4">
+              <div className="p-5 sm:p-6 pb-4">
                 <div className="flex flex-wrap gap-2">
                   <KPIBadge label="Followers" value={formatNumber(influencer.followers)} />
                   <KPIBadge label="Avg. Likes" value={formatNumber(Math.round(influencer.avg_likes))} />
@@ -152,14 +160,14 @@ export function InfluencerModal({
               </div>
 
               {/* Popular Posts */}
-              <div className="px-6 pb-4">
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">Popular Posts</h3>
+              <div className="px-5 sm:px-6 pb-4">
+                <h3 className="text-sm font-semibold text-gray-200 mb-3">Popular Posts</h3>
                 <PostGrid posts={influencer.posts} />
               </div>
 
               {/* Estimated Performance */}
-              <div className="px-6 pb-4">
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">Estimated Performance</h3>
+              <div className="px-5 sm:px-6 pb-4">
+                <h3 className="text-sm font-semibold text-gray-200 mb-3">Estimated Performance</h3>
                 <div className="flex flex-wrap gap-2 mb-2">
                   <KPIBadge label="Est. Reach" value={formatNumber(Math.round(influencer.estimated_reach))} />
                   <KPIBadge label="Est. Impressions" value={formatNumber(Math.round(influencer.estimated_impressions))} />
@@ -173,9 +181,9 @@ export function InfluencerModal({
               </div>
 
               {/* Creator Intelligence */}
-              <div className="px-6 pb-6">
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">Creator Intelligence</h3>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="px-5 sm:px-6 pb-6">
+                <h3 className="text-sm font-semibold text-gray-200 mb-3">Creator Intelligence</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <HashtagMentionPanel
                     title="Popular Hashtags"
                     items={influencer.top_hashtags.map((h) => ({ label: h.tag, count: h.count }))}
@@ -184,8 +192,8 @@ export function InfluencerModal({
                     title="Popular Mentions"
                     items={influencer.top_mentions.map((m) => ({ label: m.mention, count: m.count }))}
                   />
-                  <div className="bg-gray-800/50 rounded-xl p-4">
-                    <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Creator Interests</h4>
+                  <div className="bg-ealan-bg border border-ealan-border rounded-xl p-4">
+                    <h4 className="section-label mb-3">Creator Interests</h4>
                     {influencer.inferred_niches.length > 0 ? (
                       <NicheTagList niches={influencer.inferred_niches} />
                     ) : (
