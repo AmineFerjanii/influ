@@ -27,25 +27,11 @@ _TYPENAME_MAP = {
 
 
 async def scrape_profile(username: str, settings=None) -> dict:
-    from app.config import settings as app_settings
-    cfg = settings or app_settings
-    api_key = getattr(cfg, "scraper_api_key", "") or ""
-
-    # Use ScraperAPI residential proxy if key is available.
-    # httpx.Proxy with separate auth avoids URL-parsing issues with special chars in username.
-    proxy = None
-    if api_key:
-        proxy = httpx.Proxy(
-            url="http://proxy-server.scraperapi.com:8001",
-            auth=("scraperapi.residential=true", api_key),
-        )
-
     url = _IG_API_URL.format(username=username)
-    logger.info("Scraping @%s (proxy=%s)", username, "scraperapi-residential" if proxy else "direct")
+    logger.info("Scraping @%s via direct request", username)
 
     async with httpx.AsyncClient(
         headers=_HEADERS,
-        proxy=proxy,
         timeout=60,
         follow_redirects=True,
     ) as client:
