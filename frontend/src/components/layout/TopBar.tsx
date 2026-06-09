@@ -1,17 +1,25 @@
-import { Search, Plus, X, Trash2, Download } from 'lucide-react'
+import { Search, Plus, X, Trash2, Download, RefreshCw } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useFilterStore } from '@/store/filterStore'
 import { useViewStore } from '@/store/viewStore'
 import { influencerApi } from '@/api/client'
 import { useEffect, useRef, useState } from 'react'
 
+interface BulkRefreshState {
+  isRefreshing: boolean
+  progress: { current: number; total: number }
+  start: () => void
+  cancel: () => void
+}
+
 interface TopBarProps {
   onAddClick: () => void
   onClearAll?: () => void
   total?: number
+  bulkRefresh?: BulkRefreshState
 }
 
-export function TopBar({ onAddClick, onClearAll, total }: TopBarProps) {
+export function TopBar({ onAddClick, onClearAll, total, bulkRefresh }: TopBarProps) {
   const { search, setSearch, platform, minFollowers, maxFollowers, minEr, maxEr, sortBy, order, niche } = useFilterStore()
   const { activeView, setActiveView } = useViewStore()
 
@@ -103,6 +111,23 @@ export function TopBar({ onAddClick, onClearAll, total }: TopBarProps) {
           >
             <Trash2 size={14} />
             Clear All
+          </button>
+        )}
+        {activeView === 'influencers' && bulkRefresh && (total ?? 0) > 0 && (
+          <button
+            onClick={bulkRefresh.isRefreshing ? bulkRefresh.cancel : bulkRefresh.start}
+            title={bulkRefresh.isRefreshing ? 'Cancel refresh' : 'Re-scrape all influencers one by one'}
+            className={clsx(
+              'flex items-center gap-1.5 border px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+              bulkRefresh.isRefreshing
+                ? 'border-yellow-700 text-yellow-400 hover:border-yellow-500 hover:text-yellow-300'
+                : 'border-ealan-border text-gray-400 hover:border-gray-500 hover:text-gray-200'
+            )}
+          >
+            <RefreshCw size={14} className={bulkRefresh.isRefreshing ? 'animate-spin' : ''} />
+            {bulkRefresh.isRefreshing
+              ? `${bulkRefresh.progress.current}/${bulkRefresh.progress.total}`
+              : 'Refresh All'}
           </button>
         )}
         <button

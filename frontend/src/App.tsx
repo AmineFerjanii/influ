@@ -11,6 +11,7 @@ import { AddBrandModal } from '@/components/brand/AddBrandModal'
 import { useInfluencers } from '@/hooks/useInfluencers'
 import { useInfluencer } from '@/hooks/useInfluencer'
 import { useScrape } from '@/hooks/useScrape'
+import { useBulkRefresh } from '@/hooks/useBulkRefresh'
 import { useBrands } from '@/hooks/useBrands'
 import { useViewStore } from '@/store/viewStore'
 import { influencerApi, brandApi } from '@/api/client'
@@ -26,6 +27,7 @@ export default function App() {
   const { data, isLoading } = useInfluencers()
   const { data: detail, isLoading: detailLoading } = useInfluencer(selectedInfluencerId)
   const { trigger, scrapingIds } = useScrape()
+  const bulkRefresh = useBulkRefresh()
 
   // Brand state
   const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null)
@@ -60,7 +62,7 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-ealan-bg">
-      <TopBar onAddClick={handleAddClick} onClearAll={handleClearAll} total={activeView === 'influencers' ? data?.total : undefined} />
+      <TopBar onAddClick={handleAddClick} onClearAll={handleClearAll} total={activeView === 'influencers' ? data?.total : undefined} bulkRefresh={bulkRefresh} />
 
       <div className="flex-1 flex overflow-hidden">
         {activeView === 'influencers' && <Sidebar />}
