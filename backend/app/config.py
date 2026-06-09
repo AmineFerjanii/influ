@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     proxy_url: str = ""
     scraper_api_key: str = ""
     rapidapi_key: str = ""
+    apify_api_key: str = ""
 
     tt_page_wait: float = 12.0
     posts_per_profile: int = 30
