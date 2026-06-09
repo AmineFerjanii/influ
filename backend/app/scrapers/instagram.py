@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import re
 from collections import Counter
@@ -8,8 +7,17 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_RAPIDAPI_HOST = "instagram-scraper-api2.p.rapidapi.com"
-_RAPIDAPI_PROFILE_URL = f"https://{_RAPIDAPI_HOST}/v1.2/info"
+_IG_API_URL = "https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
+
+_HEADERS = {
+    "User-Agent": "Instagram 219.0.0.12.117 Android (33/13; 420dpi; 1080x2400; samsung; SM-G991B; o1s; exynos2100)",
+    "x-ig-app-id": "936619743392459",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "*/*",
+    "x-ig-www-claim": "0",
+    "origin": "https://www.instagram.com",
+    "referer": "https://www.instagram.com/",
+}
 
 _TYPENAME_MAP = {
     "GraphImage": "photo",
@@ -18,172 +26,103 @@ _TYPENAME_MAP = {
 }
 
 
-# ── RapidAPI path ─────────────────────────────────────────────────────────────
+async def scrape_profile(username: str, settings=None) -> dict:
+    from app.config import settings as app_settings
+    cfg = settings or app_settings
+    api_key = getattr(cfg, "scraper_api_key", "") or ""
 
-async def _scrape_via_rapidapi(username: str, api_key: str, posts_limit: int) -> dict:
-    headers = {
-        "X-RapidAPI-Key": api_key,
-        "X-RapidAPI-Host": _RAPIDAPI_HOST,
-    }
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(
-            _RAPIDAPI_PROFILE_URL,
-            params={"username_or_id_or_url": username},
-            headers=headers,
+    # Use ScraperAPI residential proxy if key is available.
+    # httpx.Proxy with separate auth avoids URL-parsing issues with special chars in username.
+    proxy = None
+    if api_key:
+        proxy = httpx.Proxy(
+            url="http://proxy-server.scraperapi.com:8001",
+            auth=("scraperapi.residential=true", api_key),
         )
 
-    logger.info("RapidAPI status for @%s: %d", username, resp.status_code)
+    url = _IG_API_URL.format(username=username)
+    logger.info("Scraping @%s (proxy=%s)", username, "scraperapi-residential" if proxy else "direct")
+
+    async with httpx.AsyncClient(
+        headers=_HEADERS,
+        proxy=proxy,
+        timeout=60,
+        follow_redirects=True,
+    ) as client:
+        try:
+            resp = await client.get(url)
+        except httpx.RequestError as e:
+            raise RuntimeError(f"Network error fetching Instagram profile '{username}': {e}")
+
+    logger.info("Instagram status for @%s: %d", username, resp.status_code)
 
     if resp.status_code == 404:
         raise ValueError(f"Instagram profile '{username}' does not exist")
+    if resp.status_code == 401:
+        raise RuntimeError(f"Instagram rate-limited '{username}' (401). Try again later.")
     if resp.status_code == 429:
-        raise RuntimeError(f"RapidAPI rate limit reached for '{username}'")
+        raise RuntimeError(f"Instagram rate-limited '{username}' (429). Try again later.")
     if resp.status_code != 200:
-        raise RuntimeError(f"RapidAPI error {resp.status_code} for '{username}': {resp.text[:200]}")
+        raise RuntimeError(f"Instagram returned {resp.status_code} for '{username}': {resp.text[:200]}")
 
-    data = resp.json()
-    user = (data.get("data") or {}).get("user") or data.get("data")
+    try:
+        data = resp.json()
+    except Exception:
+        raise RuntimeError(f"Invalid JSON for '{username}': {resp.text[:200]}")
+
+    user = data.get("data", {}).get("user")
     if not user:
-        raise ValueError(f"No user data for '{username}'. Response: {str(data)[:200]}")
+        raise ValueError(f"Instagram profile '{username}' does not exist or is private")
 
-    return _parse_user(user, posts_limit)
-
-
-# ── Instaloader fallback ───────────────────────────────────────────────────────
-
-_loader = None
-_loader_lock = asyncio.Lock()
+    return _parse_user(user)
 
 
-async def _get_loader(ig_username: str, ig_password: str):
-    global _loader
-    async with _loader_lock:
-        if _loader is None:
-            import instaloader
-            _loader = instaloader.Instaloader(
-                quiet=True,
-                download_pictures=False,
-                download_videos=False,
-                download_video_thumbnails=False,
-                download_geotags=False,
-                download_comments=False,
-                save_metadata=False,
-                compress_json=False,
-                request_timeout=30,
-            )
-            if ig_username and ig_password:
-                logger.info("Logging into Instagram as @%s ...", ig_username)
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(None, _loader.login, ig_username, ig_password)
-                logger.info("Instagram login successful as @%s", ig_username)
-            else:
-                logger.warning("No Instagram credentials — scraping unauthenticated")
-    return _loader
-
-
-def _fetch_instaloader(context, username: str, posts_limit: int):
-    from instaloader import Profile, ProfileNotExistsException
-    try:
-        profile = Profile.from_username(context, username)
-    except ProfileNotExistsException:
-        raise ValueError(f"Instagram profile '{username}' does not exist")
-
-    posts = []
-    try:
-        for post in profile.get_posts():
-            if len(posts) >= posts_limit:
-                break
-            posts.append({
-                "post_id": post.shortcode,
-                "thumbnail_url": post.url,
-                "post_url": f"https://www.instagram.com/p/{post.shortcode}/",
-                "likes": post.likes,
-                "comments": post.comments,
-                "posted_at": post.date_utc.replace(tzinfo=timezone.utc) if post.date_utc else None,
-                "is_video": post.is_video,
-                "caption": post.caption or "",
-                "media_type": _TYPENAME_MAP.get(post.typename, "photo"),
-                "view_count": post.video_view_count if post.is_video else 0,
-            })
-    except Exception as e:
-        logger.warning("Could not fetch posts for @%s: %s", username, e)
-
-    all_text = " ".join(p["caption"] for p in posts if p["caption"])
-    return {
-        "username": profile.username,
-        "display_name": profile.full_name or "",
-        "profile_pic_url": profile.profile_pic_url or "",
-        "bio": profile.biography or "",
-        "followers": profile.followers,
-        "following": profile.followees,
-        "total_posts": profile.mediacount,
-        "is_verified": bool(profile.is_verified),
-        "posts": posts,
-        "top_hashtags": [{"tag": f"#{t}", "count": c} for t, c in Counter(re.findall(r"#(\w+)", all_text.lower())).most_common(10)],
-        "top_mentions": [{"mention": f"@{m}", "count": c} for m, c in Counter(re.findall(r"@(\w+)", all_text.lower())).most_common(10)],
-    }
-
-
-# ── Shared response parser (for RapidAPI) ─────────────────────────────────────
-
-def _parse_user(user: dict, posts_limit: int) -> dict:
-    timeline = user.get("edge_owner_to_timeline_media") or {}
-    edges = (timeline.get("edges") or [])[:posts_limit]
+def _parse_user(user: dict) -> dict:
+    timeline = user.get("edge_owner_to_timeline_media", {})
+    edges = timeline.get("edges", [])
 
     posts_data = []
     for edge in edges:
         node = edge.get("node", {})
         shortcode = node.get("shortcode", "")
-        likes = (node.get("edge_media_preview_like") or {}).get("count", 0) or (node.get("edge_liked_by") or {}).get("count", 0)
-        comments = (node.get("edge_media_to_comment") or {}).get("count", 0)
-        ts = node.get("taken_at_timestamp")
-        caption_edges = (node.get("edge_media_to_caption") or {}).get("edges", [])
+        likes = (
+            node.get("edge_media_preview_like", {}).get("count", 0)
+            or node.get("edge_liked_by", {}).get("count", 0)
+        )
+        comments = node.get("edge_media_to_comment", {}).get("count", 0)
+        timestamp = node.get("taken_at_timestamp")
+        posted_at = datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp else None
+        thumbnail = node.get("thumbnail_src") or node.get("display_url") or ""
+        caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
         caption = caption_edges[0]["node"]["text"] if caption_edges else ""
+        typename = node.get("__typename", "")
         posts_data.append({
             "post_id": shortcode,
-            "thumbnail_url": node.get("thumbnail_src") or node.get("display_url") or "",
+            "thumbnail_url": thumbnail,
             "post_url": f"https://www.instagram.com/p/{shortcode}/",
             "likes": likes,
             "comments": comments,
-            "posted_at": datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None,
+            "posted_at": posted_at,
             "is_video": node.get("is_video", False),
             "caption": caption,
-            "media_type": _TYPENAME_MAP.get(node.get("__typename", ""), "photo"),
+            "media_type": _TYPENAME_MAP.get(typename, "photo"),
             "view_count": node.get("video_view_count") or 0,
         })
 
     all_text = " ".join(p["caption"] for p in posts_data if p["caption"])
+    hashtag_counts = Counter(re.findall(r"#(\w+)", all_text.lower()))
+    mention_counts = Counter(re.findall(r"@(\w+)", all_text.lower()))
+
     return {
         "username": user.get("username", ""),
         "display_name": user.get("full_name", "") or "",
         "profile_pic_url": user.get("profile_pic_url_hd") or user.get("profile_pic_url") or "",
         "bio": user.get("biography", "") or "",
-        "followers": (user.get("edge_followed_by") or {}).get("count", 0),
-        "following": (user.get("edge_follow") or {}).get("count", 0),
+        "followers": user.get("edge_followed_by", {}).get("count", 0),
+        "following": user.get("edge_follow", {}).get("count", 0),
         "total_posts": timeline.get("count", 0),
         "is_verified": bool(user.get("is_verified", False)),
         "posts": posts_data,
-        "top_hashtags": [{"tag": f"#{t}", "count": c} for t, c in Counter(re.findall(r"#(\w+)", all_text.lower())).most_common(10)],
-        "top_mentions": [{"mention": f"@{m}", "count": c} for m, c in Counter(re.findall(r"@(\w+)", all_text.lower())).most_common(10)],
+        "top_hashtags": [{"tag": f"#{t}", "count": c} for t, c in hashtag_counts.most_common(10)],
+        "top_mentions": [{"mention": f"@{m}", "count": c} for m, c in mention_counts.most_common(10)],
     }
-
-
-# ── Public entry point ─────────────────────────────────────────────────────────
-
-async def scrape_profile(username: str, settings=None) -> dict:
-    from app.config import settings as app_settings
-    cfg = settings or app_settings
-    rapidapi_key = getattr(cfg, "rapidapi_key", "") or ""
-    posts_limit = getattr(cfg, "posts_per_profile", 30) or 30
-
-    if rapidapi_key:
-        logger.info("Scraping @%s via RapidAPI", username)
-        return await _scrape_via_rapidapi(username, rapidapi_key, posts_limit)
-
-    # Fallback: instaloader with credentials
-    logger.warning("RAPIDAPI_KEY not set — falling back to instaloader (may be rate-limited from datacenter IPs)")
-    ig_username = getattr(cfg, "ig_username", "") or ""
-    ig_password = getattr(cfg, "ig_password", "") or ""
-    loader = await _get_loader(ig_username, ig_password)
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _fetch_instaloader, loader.context, username, posts_limit)
